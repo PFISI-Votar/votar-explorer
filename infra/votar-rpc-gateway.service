@@ -1,0 +1,23 @@
+[Unit]
+Description=VOTAR allowlisted JSON-RPC gateway
+After=network.target votar-hardhat.service
+
+[Service]
+Type=simple
+User=votar
+Group=votar
+WorkingDirectory=/opt/votar-explorer
+Environment=NODE_ENV=production
+Environment=HARDHAT_RPC_URL=http://127.0.0.1:8545
+Environment=RPC_GATEWAY_HOST=127.0.0.1
+Environment=RPC_GATEWAY_PORT=8546
+ExecStart=/usr/bin/node /opt/votar-explorer/infra/rpc-gateway.mjs
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
