@@ -6,12 +6,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "audit:prod": "npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {
     "next": "16.4.6",
+    "postgres": "^3.4.7",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "solc": "0.8.26",
+    "viem": "^2.38.6"
   },
   "devDependencies": {
     "@types/node": "^20",
@@ -19,6 +25,10 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.9"
+  },
+  "overrides": {
+    "tmp": "^0.2.6"
   }
 }
