@@ -1,23 +1,31 @@
 [Unit]
 Description=VOTAR allowlisted JSON-RPC gateway
-After=network.target votar-hardhat.service
+Requires=blockchain-node.service
+After=network-online.target blockchain-node.service
 
 [Service]
 Type=simple
 User=votar
 Group=votar
-WorkingDirectory=/opt/votar-explorer
+WorkingDirectory=/opt/votar-rpc-gateway
 Environment=NODE_ENV=production
 Environment=HARDHAT_RPC_URL=http://127.0.0.1:8545
-Environment=RPC_GATEWAY_HOST=127.0.0.1
+Environment=RPC_GATEWAY_HOST=0.0.0.0
 Environment=RPC_GATEWAY_PORT=8546
-ExecStart=/usr/bin/node /opt/votar-explorer/infra/rpc-gateway.mjs
+Environment=RPC_CORS_ALLOWED_ORIGINS=https://votar.net.ar,https://www.votar.net.ar,https://votar-front.vercel.app,https://votar.vercel.app
+ExecStart=/usr/bin/node /opt/votar-rpc-gateway/rpc-gateway.mjs
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
+PrivateDevices=true
 PrivateTmp=true
+ProtectControlGroups=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+CapabilityBoundingSet=
+AmbientCapabilities=
 
 [Install]
 WantedBy=multi-user.target

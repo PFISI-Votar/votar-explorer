@@ -13,6 +13,12 @@ const ALLOWED_METHODS = new Set([
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const MAX_BATCH_SIZE = 20;
 const UPSTREAM = process.env.HARDHAT_RPC_URL ?? "http://127.0.0.1:8545";
+const ALLOWED_ORIGINS = new Set(
+  (process.env.RPC_CORS_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
 
 function validCall(call) {
   return call && typeof call === "object" && !Array.isArray(call) && call.jsonrpc === "2.0" && typeof call.method === "string" && ALLOWED_METHODS.has(call.method) && (call.params === undefined || Array.isArray(call.params) || (call.params && typeof call.params === "object"));
@@ -37,28 +43,66 @@ function readBody(request) {
   });
 }
 
-function json(response, status, body) {
-  response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" });
+export function isAllowedOrigin(origin, allowedOrigins = ALLOWED_ORIGINS) {
+  return !origin || allowedOrigins.has(origin);
+}
+
+function corsHeaders(request) {
+  const origin = request.headers.origin;
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) return {};
+  return {
+    "access-control-allow-origin": origin,
+    vary: "Origin",
+  };
+}
+
+function json(response, status, body, request) {
+  response.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    ...corsHeaders(request),
+  });
   response.end(JSON.stringify(body));
 }
 
 export function createGateway() {
   return http.createServer(async (request, response) => {
-    if (request.method === "GET" && request.url === "/health") return json(response, 200, { status: "ok" });
-    if (request.method !== "POST" || request.url !== "/") return json(response, 404, { error: "not_found" });
-    if (!request.headers["content-type"]?.toLowerCase().startsWith("application/json")) return json(response, 415, { error: "content_type_required" });
+    if (request.method === "OPTIONS" && request.url === "/") {
+      const origin = request.headers.origin;
+      if (!origin || !isAllowedOrigin(origin)) {
+        return json(response, 403, { error: "origin_not_allowed" }, request);
+      }
+      response.writeHead(204, {
+        ...corsHeaders(request),
+        "access-control-allow-methods": "POST, OPTIONS",
+        "access-control-allow-headers": "content-type",
+        "access-control-max-age": "600",
+        "cache-control": "no-store",
+      });
+      return response.end();
+    }
+    if (request.method === "GET" && request.url === "/health") return json(response, 200, { status: "ok" }, request);
+    if (request.method !== "POST" || request.url !== "/") return json(response, 404, { error: "not_found" }, request);
+    if (!isAllowedOrigin(request.headers.origin)) return json(response, 403, { error: "origin_not_allowed" }, request);
+    if (!request.headers["content-type"]?.toLowerCase().startsWith("application/json")) return json(response, 415, { error: "content_type_required" }, request);
     try {
       const raw = await readBody(request);
       let payload;
-      try { payload = JSON.parse(raw); } catch { return json(response, 400, { error: "invalid_json" }); }
-      if (!isAllowedPayload(payload)) return json(response, 403, { error: "rpc_method_not_allowed" });
+      try { payload = JSON.parse(raw); } catch { return json(response, 400, { error: "invalid_json" }, request); }
+      if (!isAllowedPayload(payload)) return json(response, 403, { error: "rpc_method_not_allowed" }, request);
       const upstream = await fetch(UPSTREAM, { method: "POST", headers: { "content-type": "application/json" }, body: raw, signal: AbortSignal.timeout(10_000) });
       const result = await upstream.text();
-      response.writeHead(upstream.ok ? 200 : 502, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" });
+      response.writeHead(upstream.ok ? 200 : 502, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        ...corsHeaders(request),
+      });
       response.end(result);
     } catch (error) {
       const status = Number(error?.status) || 502;
-      if (!response.headersSent) json(response, status, { error: status === 413 ? "request_too_large" : "upstream_unavailable" });
+      if (!response.headersSent) json(response, status, { error: status === 413 ? "request_too_large" : "upstream_unavailable" }, request);
     }
   });
 }
