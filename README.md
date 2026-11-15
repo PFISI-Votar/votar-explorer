@@ -5,17 +5,19 @@ Explorador de bloques privado para el nodo Hardhat del simulacro electoral. La i
 ## Arquitectura
 
 ```text
-Vercel (explorer + backend)
-  │  HTTPS + CF Access Service Token
-  ▼
-Cloudflare Access / Tunnel
-  ▼
-127.0.0.1:8546  RPC gateway con allowlist
-  ▼
-127.0.0.1:8545  Hardhat node
+Browser ──HTTPS──> rpc11.probit.com.ar
+                  127.0.0.1:8546 (read-only)
+
+Backend ──HTTPS + CF Access Service Token──> rpc-admin11.probit.com.ar
+                                             127.0.0.1:8547 (write)
+
+Ambos gateways ──> 127.0.0.1:8545 (Hardhat, nunca expuesto)
 ```
 
-El navegador nunca recibe la URL ni las credenciales RPC. Las consultas salen desde Route Handlers y Server Components de Next.js. El gateway permite `eth_sendRawTransaction`, pero bloquea métodos administrativos de Hardhat, EVM, cuentas personales y firma con cuentas desbloqueadas.
+El gateway público solo admite lecturas. El gateway privado agrega
+`eth_sendRawTransaction` y debe estar protegido por Cloudflare Access. Ninguno
+permite métodos administrativos de Hardhat, EVM, cuentas personales ni firma
+con cuentas desbloqueadas.
 
 ## Desarrollo local
 
@@ -60,11 +62,20 @@ El servidor recompila las fuentes con Solidity 0.8.26 y compara el bytecode comp
 
 1. Ejecutá Hardhat ligado solo a loopback: `npx hardhat node --hostname 127.0.0.1`.
 2. Copiá este repo a `/opt/votar-explorer` en el host y creá un usuario de sistema `votar` sin login.
-3. Instalá `infra/votar-rpc-gateway.service`, ajustá rutas/usuario si corresponde, y habilitalo.
+3. Instalá `infra/votar-rpc-gateway.service` y
+   `infra/votar-rpc-gateway-private.service`, ajustá rutas/usuario si
+   corresponde, y habilitalos.
 4. Copiá `infra/cloudflared.example.yml` a `/etc/cloudflared/config.yml`, reemplazá UUID y hostname, y validá con `cloudflared tunnel ingress validate`.
-5. En Cloudflare Zero Trust creá una aplicación Access para el hostname RPC y una política **Service Auth** que acepte únicamente un Service Token dedicado.
-6. Guardá `RPC_URL`, `CF_ACCESS_CLIENT_ID` y `CF_ACCESS_CLIENT_SECRET` como variables cifradas del explorer y del backend en Vercel.
-7. Aplicá rate limiting en Cloudflare al hostname RPC y no abras los puertos 8545/8546 en el firewall.
+5. Publicá `rpc11.probit.com.ar` hacia `127.0.0.1:8546` y
+   `rpc-admin11.probit.com.ar` hacia `127.0.0.1:8547`.
+6. En Cloudflare Zero Trust creá una aplicación Access solamente para
+   `rpc-admin11.probit.com.ar` y una política **Service Auth** que acepte un
+   Service Token dedicado al backend.
+7. En Vercel backend configurá `SEPOLIA_RPC_URL=https://rpc-admin11.probit.com.ar`,
+   `CF_ACCESS_CLIENT_ID` y `CF_ACCESS_CLIENT_SECRET`. En el frontend usá
+   `VITE_RPC_URL=https://rpc11.probit.com.ar`.
+8. Aplicá rate limiting por IP al hostname público y no abras los puertos
+   8545, 8546 ni 8547 en el firewall.
 
 Probá primero el gateway local:
 

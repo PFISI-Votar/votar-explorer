@@ -2,8 +2,16 @@ tunnel: REPLACE_WITH_TUNNEL_UUID
 credentials-file: /etc/cloudflared/REPLACE_WITH_TUNNEL_UUID.json
 
 ingress:
-  - hostname: rpc.example.org
+  # Público: lecturas JSON-RPC desde el navegador. No admite transacciones.
+  - hostname: rpc11.probit.com.ar
     service: http://127.0.0.1:8546
+    originRequest:
+      connectTimeout: 10s
+      noHappyEyeballs: true
+  # Privado: escrituras del backend. Proteger obligatoriamente con
+  # Cloudflare Access + política Service Auth.
+  - hostname: rpc-admin11.probit.com.ar
+    service: http://127.0.0.1:8547
     originRequest:
       connectTimeout: 10s
       noHappyEyeballs: true

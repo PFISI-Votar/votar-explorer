@@ -1,18 +1,20 @@
 import http from "node:http";
 import { pathToFileURL } from "node:url";
 
-const ALLOWED_METHODS = new Set([
+const READ_ONLY_METHODS = new Set([
   "eth_blockNumber", "eth_call", "eth_chainId", "eth_estimateGas", "eth_feeHistory",
   "eth_gasPrice", "eth_getBalance", "eth_getBlockByHash", "eth_getBlockByNumber",
   "eth_getBlockTransactionCountByHash", "eth_getBlockTransactionCountByNumber",
   "eth_getCode", "eth_getLogs", "eth_getStorageAt", "eth_getTransactionByBlockHashAndIndex",
   "eth_getTransactionByBlockNumberAndIndex", "eth_getTransactionByHash", "eth_getTransactionCount",
-  "eth_getTransactionReceipt", "eth_maxPriorityFeePerGas", "eth_sendRawTransaction", "eth_syncing",
+  "eth_getTransactionReceipt", "eth_maxPriorityFeePerGas", "eth_syncing",
   "net_version", "web3_clientVersion",
 ]);
+const WRITE_METHODS = new Set([...READ_ONLY_METHODS, "eth_sendRawTransaction"]);
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const MAX_BATCH_SIZE = 20;
 const UPSTREAM = process.env.HARDHAT_RPC_URL ?? "http://127.0.0.1:8545";
+const GATEWAY_MODE = process.env.RPC_GATEWAY_MODE === "write" ? "write" : "read-only";
 const ALLOWED_ORIGINS = new Set(
   (process.env.RPC_CORS_ALLOWED_ORIGINS ?? "")
     .split(",")
@@ -20,13 +22,14 @@ const ALLOWED_ORIGINS = new Set(
     .filter(Boolean),
 );
 
-function validCall(call) {
-  return call && typeof call === "object" && !Array.isArray(call) && call.jsonrpc === "2.0" && typeof call.method === "string" && ALLOWED_METHODS.has(call.method) && (call.params === undefined || Array.isArray(call.params) || (call.params && typeof call.params === "object"));
+function validCall(call, allowedMethods) {
+  return call && typeof call === "object" && !Array.isArray(call) && call.jsonrpc === "2.0" && typeof call.method === "string" && allowedMethods.has(call.method) && (call.params === undefined || Array.isArray(call.params) || (call.params && typeof call.params === "object"));
 }
 
-export function isAllowedPayload(payload) {
-  if (Array.isArray(payload)) return payload.length > 0 && payload.length <= MAX_BATCH_SIZE && payload.every(validCall);
-  return validCall(payload);
+export function isAllowedPayload(payload, mode = GATEWAY_MODE) {
+  const allowedMethods = mode === "write" ? WRITE_METHODS : READ_ONLY_METHODS;
+  if (Array.isArray(payload)) return payload.length > 0 && payload.length <= MAX_BATCH_SIZE && payload.every((call) => validCall(call, allowedMethods));
+  return validCall(payload, allowedMethods);
 }
 
 function readBody(request) {
@@ -66,7 +69,7 @@ function json(response, status, body, request) {
   response.end(JSON.stringify(body));
 }
 
-export function createGateway() {
+export function createGateway({ mode = GATEWAY_MODE } = {}) {
   return http.createServer(async (request, response) => {
     if (request.method === "OPTIONS" && request.url === "/") {
       const origin = request.headers.origin;
@@ -90,7 +93,7 @@ export function createGateway() {
       const raw = await readBody(request);
       let payload;
       try { payload = JSON.parse(raw); } catch { return json(response, 400, { error: "invalid_json" }, request); }
-      if (!isAllowedPayload(payload)) return json(response, 403, { error: "rpc_method_not_allowed" }, request);
+      if (!isAllowedPayload(payload, mode)) return json(response, 403, { error: "rpc_method_not_allowed" }, request);
       const upstream = await fetch(UPSTREAM, { method: "POST", headers: { "content-type": "application/json" }, body: raw, signal: AbortSignal.timeout(10_000) });
       const result = await upstream.text();
       response.writeHead(upstream.ok ? 200 : 502, {
@@ -110,5 +113,5 @@ export function createGateway() {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const host = process.env.RPC_GATEWAY_HOST ?? "127.0.0.1";
   const port = Number(process.env.RPC_GATEWAY_PORT ?? "8546");
-  createGateway().listen(port, host, () => process.stdout.write(`RPC gateway listening on http://${host}:${port}\n`));
+  createGateway({ mode: GATEWAY_MODE }).listen(port, host, () => process.stdout.write(`RPC gateway (${GATEWAY_MODE}) listening on http://${host}:${port}\n`));
 }
